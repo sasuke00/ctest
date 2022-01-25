@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChatRT 2.0</title>
+    <link href="image/favicon.png" rel="shortcut icon">
+    <link href="css/app.css" rel="stylesheet">
+    <style>
+        /* TODO(2E): Image CSS */
+        .image{
+            max-width: 200px;
+            max-height: 200px;
+            border:1px solid #999;
+            cursor: pointer;
+        }
+
+        /* TODO(4B): Fullscreen CSS */
+        .image:fullscreen{
+            object-fit: scale-down;
+        }
+
+        /* TODO(6A): Drag-and-drop CSS */
+        .active{outline:5px dashed red;outline-offset: -5px;}
+
+    </style>
+</head>
+<body>
+    <header>
+        <h1>ChatRT 2.0</h1>
+        <div>👧🏻 = <b id="count">0</b></div>
+    </header>
+
+    <main>
+        <ul id="chat"></ul>
+    </main>
+
+    <footer>
+        <form id="form" autocomplete="off">
+            <input type="text" id="message" placeholder="Enter Message" autofocus>
+            <button type="button" id="image">Image</button>
+            <button type="button" id="leave">Leave</button>
+            <input type="file" id="file" accept="image/*" hidden>
+        </form>
+    </footer>
+
+    <!-- JavaScript Section -->
+    <script src="js/jquery.slim.js"></script>
+    <script src="js/signalr.js"></script>
+    <script src="js/app.js"></script>
+    <script>
+        // Checking ===========================================================
+        const name = sessionStorage.getItem('name');
+        if (!name) {
+            location = '/';
+            throw 'ERROR: Invalid name';
+        }
+
+        // General Events =====================================================
+        $('#leave').click(e => location = '/');
+
+        // General Functions ==================================================
+        const m = $('main')[0];
+        let bottom = true;
+
+        function isBottom() {
+            bottom = m.scrollTop + m.clientHeight + 10 >= m.scrollHeight;
+        }
+
+        function scrollToBottom() {
+            if (bottom) {
+                m.scrollTop = m.scrollHeight;
+            }
+        }
+
+        // TODO(2A): getImageURL(message) --> url
+        function getImageURL(message){
+            let re = /.(jpg|jpeg|png|webp|gif|bmp)$/i;
+            try{
+                let url = new URL(message);
+                if(re.test(url.pathname)){
+                    return url.href;
+                }
+            }
+            catch{
+                //Do nothing
+            }
+            return null;
+        }
+
+        // TODO(3A): getYouTubeId(message) --> id
+        function getYouTubeId(message){
+            try{
+                let url = new URL(message);
+                if(url.hostname == "www.youtube.com" || url.pathname=="/watch")
+                    return url.searchParams.get('v');
+            }catch{
+
+            }
+            return null;
+        }
+
+        // Connection Setup ===================================================
+        const con = new signalR.HubConnectionBuilder()
+            .withUrl(`/hub?name=${encodeURIComponent(name)}`)
+            .build();
+
+        con.on('ReceiveText', (name, message, who) => {
+            message = message
+                .replaceAll(':)', '😊')
+                .replaceAll(':(', '😥')
+                .replaceAll('<3', '❤️');
+            
+            message = $('<div>').text(message).html();
+            
+            // TODO(1): Text-to-hyperlink transform
+            message = message.replace(
+                /(?<=^|\s)(https?:\/\/\S+)(?=$|\s)/gi,
+                '<a target="_blank" href="$&">$&</a>'
+            )
+
+            isBottom();
+            $('#chat').append(`
+                <li class="${who}">
+                    <div>
+                        <b>${name}:</b> ${message}
+                    </div>
+                </li>
+            `);
+            scrollToBottom();
+        });
+
+        con.on('UpdateStatus', (count, status) => {
+            $('#count').text(count);
+
+            isBottom();
+            $('#chat').append(`
+                <li class="status">
+                    <div>${status}</div>
+                </li>
+            `);
+            scrollToBottom();
+        });
+
+        // TODO(2D): ReceiveImage(name, url, who)
+        con.on('ReceiveImage',(name,url,who)=>{
+            isBottom();
+            $('#chat').append(`
+                <li class="${who}">
+                    <div>
+                        <b>${name}</b> sent an image<br>
+                        <img src="${url}" class="image" onload="scrollToBottom()"/>
+                    </div>
+                </li>
+            `);
+        });
+
+        // TODO(3D): ReceiveYouTube(name, id, who)
+        con.on('ReceiveYoutube',(name,id,who)=>{
+            isBottom();
+            $('#chat').append(`
+                <li class="${who}">
+                    <div>
+                        <b>${name}</b> sent a video <br>
+                        <iframe width="560" height="315" 
+                        src="https://www.youtube.com/embed/${id}" 
+                        frameborder="0" 
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; 
+                        picture-in-picture" allowfullscreen></iframe>
+                    </div>
+                </li>
+            `);
+        });
+
+
+        con.onclose(err => location = '/');
+
+        // Start ==============================================================
+        con.start().then(main);
+
+        function main() {
+            
+            $('#form').submit(e => {
+                e.preventDefault();
+                let message = $('#message').val().trim();
+                if (message) {
+                    // TODO(2B): url <-- getImageURL(message)
+                    // TODO(3B): id  <-- getYouTubeId(message)
+                    let url = getImageURL(message);
+                    let id  = getYouTubeId(message);
+
+                    if (url) {
+                        // Send image
+                        con.invoke('SendImage',name,url);
+                        
+                    }
+                    else if (id) {
+                        // Send YouTube
+                        con.invoke('SendYouTube',name,id);
+                    }
+                    else {
+                        // Send text
+                        con.invoke('SendText', name, message);
+                    }
+                }
+                $('#message').val('').focus();
+            });
+
+            // TODO(4A): Request fullscreen
+            $('#chat').on('click','.image',e=>e.target.requestFullscreen());
+            
+
+            // TODO(5A): File select
+            $('#image').click(e=>$('#file').click());
+            
+            $('#file').change(e=>{
+                let f = e.target.files[0];
+                if(f && f.type.startsWith('image/')){
+                    // let fr = new FileReader();
+                    // fr.onload = e=>{
+                    //     let url = e.target.result;
+                    //     con.invoke('SendImage',name ,url);
+                    // };
+                    // fr.readAsDataURL(f);
+                    fit(f, 500, 500, 'dataURL','image/webp').then(url=>con.invoke('SendImage',name ,url));
+                }
+                e.target.value = null;
+            });
+            // TODO(6B): Drag-and-drop file select
+            $('main').on('dragenter dragover',e=>{
+                e.preventDefault();
+                $('main').addClass('active');
+            });
+            $('main').on('dragleave drop',e=>{
+                e.preventDefault();
+                $('main').removeClass('active');
+            });
+            $('main').on('drop',e=>{
+                e.preventDefault();
+                let f = e.originalEvent.dataTransfer.files[0];//default is jquery event
+                if(f&&f.type.startsWith('image/')){
+                  //  let fr = new FileReader();
+                  //  fr.onload = e=>{
+                   //     let url = e.target.result;
+                   //     con.invoke('SendImage',name ,url);
+                  //  };
+                   // fr.readAsDataURL(f);
+                   fit(f,500,500,'dataURL','image/webp').then(url=>con.invoke('SendImage',name ,url));
+                }
+            });
+
+        }
+    </script>
+    
+</body>
+</html>
